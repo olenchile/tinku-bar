@@ -1,26 +1,143 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
+/* ─── Design Tokens: Tinku Restobar — Dark Luxury Edition ───── */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* Fuentes */
+  --font-display:  var(--font-cormorant);
+  --font-serif:    var(--font-playfair);
+  --font-sans:     var(--font-inter);
+
+  /* Paleta dark luxury */
+  --color-obsidian:       #0e0c0a;
+  --color-charcoal:       #1a1714;
+  --color-charcoal-2:     #242019;
+  --color-charcoal-3:     #2e2921;
+
+  /* Dorado whisky */
+  --color-gold:           #c9a84c;
+  --color-gold-bright:    #e4c068;
+  --color-gold-muted:     #9a7a36;
+  --color-gold-pale:      rgba(201,168,76,0.12);
+  --color-gold-border:    rgba(201,168,76,0.22);
+
+  /* Whisky / ámbar */
+  --color-whisky:         #b8732a;
+  --color-whisky-light:   #d4924e;
+  --color-whisky-pale:    rgba(184,115,42,0.15);
+
+  /* Crema / pergamino */
+  --color-cream:          #f5edd8;
+  --color-cream-2:        #ede3c8;
+
+  /* Bordes */
+  --color-border:         rgba(201,168,76,0.16);
+  --color-border-mid:     rgba(201,168,76,0.28);
+  --color-border-strong:  rgba(201,168,76,0.44);
+
+  /* Texto */
+  --color-ink:            #f0e8d4;
+  --color-ink-muted:      #9a8e78;
+  --color-ink-subtle:     #5a5040;
+
+  /* Sombras doradas */
+  --shadow-gold:          0 0 0 1px rgba(201,168,76,0.18), 0 4px 32px rgba(0,0,0,0.48);
+  --shadow-card:          0 2px 16px rgba(0,0,0,0.4), 0 0 0 1px rgba(201,168,76,0.10);
+  --shadow-card-hover:    0 8px 48px rgba(0,0,0,0.56), 0 0 0 1px rgba(201,168,76,0.26);
+  --shadow-glow:          0 0 40px rgba(201,168,76,0.12);
+
+  /* Radii */
+  --radius-xs:   0.25rem;
+  --radius-sm:   0.5rem;
+  --radius-md:   0.875rem;
+  --radius-lg:   1.25rem;
+  --radius-xl:   2rem;
+  --radius-full: 9999px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* ─── Utilities de lujo ──────────────────────────────────────── */
+@utility glass-dark {
+  background: rgba(26,23,20,0.82);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid var(--color-border);
+}
+
+@utility gold-gradient {
+  background: linear-gradient(135deg, #c9a84c 0%, #e4c068 50%, #9a7a36 100%);
+}
+
+@utility text-gold-gradient {
+  background: linear-gradient(90deg, #c9a84c, #e4c068, #c9a84c);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+@utility noise-texture {
+  position: relative;
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.032;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    mix-blend-mode: overlay;
   }
 }
 
+/* ─── Base ──────────────────────────────────────────────────── */
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color-scheme: dark;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-obsidian);
+  color: var(--color-ink);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  overflow-x: hidden;
+}
+
+/* ─── Scrollbar de lujo ──────────────────────────────────────── */
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: var(--color-charcoal); }
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #c9a84c, #9a7a36);
+  border-radius: var(--radius-full);
+}
+::selection { background: var(--color-gold-pale); color: var(--color-gold-bright); }
+
+/* ─── Tipografía de display ──────────────────────────────────── */
+.display-serif {
+  font-family: var(--font-display), var(--font-serif), Georgia, serif;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+}
+
+.display-serif-bold {
+  font-family: var(--font-display), var(--font-serif), Georgia, serif;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+/* ─── Animaciones custom ─────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+@keyframes pulse-gold {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
+}
+
+.shimmer-gold {
+  background: linear-gradient(90deg, #c9a84c 0%, #e4c068 40%, #f5d88a 50%, #e4c068 60%, #c9a84c 100%);
+  background-size: 200% auto;
+  animation: shimmer 2.4s linear infinite;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
