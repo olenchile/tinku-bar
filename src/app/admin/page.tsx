@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { m, AnimatePresence } from "framer-motion";
+import { DayPicker } from "react-day-picker";
+import type { DateRange } from "react-day-picker";
 import {
   menuApi,
   pedidosApi,
@@ -10,10 +12,12 @@ import {
   type Pedido,
 } from "@/lib/api-client";
 import { DEFAULT_MINUTA } from "@/lib/minuta-store";
+import type { MinutaSemanal, DiaSemana } from "@/lib/minuta-types";
+import { DIAS_ORDER, DIAS_LABELS } from "@/lib/minuta-types";
+import MinutaPreview from "@/components/minuta-preview";
 import {
   Lock,
   Save,
-  RotateCcw,
   Plus,
   Trash2,
   ChevronDown,
@@ -27,6 +31,8 @@ import {
   BarChart3,
   ClipboardList,
   X,
+  FileDown,
+  CalendarDays,
 } from "lucide-react";
 import { TinkuLogo } from "@/components/tinku-logo";
 
@@ -93,71 +99,58 @@ function ListEditor({
   );
 }
 
-// ─── EDITOR MENÚ DEL DÍA ──────────────────────────────────────────────────────
+// ─── EDITOR MENÚ COMPLETO ─────────────────────────────────────────────────────
 
-function EditorMenu() {
-  const [menu, setMenu] = useState<MenuDia>({
-    fecha: todayChile(),
-    platos: [],
-    veganos: [],
-    hipocaloricos: [],
-    agregados: [],
-    ensaladas: [],
-    postres: [],
-  });
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+function EditorMenu({
+  minuta,
+  onMinutaChange,
+}: {
+  minuta: MinutaSemanal;
+  onMinutaChange: (m: MinutaSemanal) => void;
+}) {
+  const [activeDia, setActiveDia] = useState<DiaSemana>("lunes");
   const [open, setOpen] = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const cargar = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await menuApi.get();
-      if (data.platos?.length > 0 || data.veganos?.length > 0) {
-        setMenu(data);
-      } else {
-        // Cargar desde minuta default según día
-        const dow = new Date().getDay();
-        const dias = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"] as const;
-        const diaKey = dias[dow] as keyof typeof DEFAULT_MINUTA.dias;
-        const diaData = DEFAULT_MINUTA.dias[diaKey as "lunes" | "martes" | "miercoles" | "jueves" | "viernes"];
-        if (diaData) {
-          setMenu({
-            fecha: todayChile(),
-            ...diaData,
-            hipocaloricos: DEFAULT_MINUTA.hipocaloricos,
-          });
-        }
+  const diaData = minuta.dias[activeDia];
+
+  // Auto-save con debounce de 1s al cambiar la minuta
+  useEffect(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    setAutoSaveStatus("saving");
+    saveTimerRef.current = setTimeout(async () => {
+      try {
+        const payload: MenuDia = {
+          fecha: todayChile(),
+          platos: minuta.dias[activeDia].platos,
+          veganos: minuta.dias[activeDia].veganos,
+          hipocaloricos: minuta.hipocaloricos,
+          agregados: minuta.dias[activeDia].agregados,
+          ensaladas: minuta.dias[activeDia].ensaladas,
+          postres: minuta.dias[activeDia].postres,
+        };
+        await menuApi.save(payload);
+        setAutoSaveStatus("saved");
+        setTimeout(() => setAutoSaveStatus("idle"), 2000);
+      } catch {
+        setAutoSaveStatus("idle");
       }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    }, 1000);
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [minuta]);
 
-  useEffect(() => { cargar(); }, [cargar]);
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await menuApi.save({ ...menu, fecha: todayChile() });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
-    } catch (e) {
-      alert("Error al guardar el menú");
-      console.error(e);
-    } finally {
-      setSaving(false);
-    }
+  // Actualiza un campo del día activo
+  const updateDia = (field: keyof typeof diaData, value: string[]) => {
+    onMinutaChange({
+      ...minuta,
+      dias: {
+        ...minuta.dias,
+        [activeDia]: { ...diaData, [field]: value },
+      },
+    });
   };
-
-  if (loading) return (
-    <div className="flex justify-center py-8">
-      <Loader2 size={32} className="animate-spin text-amber-500" />
-    </div>
-  );
 
   return (
     <div className="bg-white border-2 border-stone-200 rounded-2xl overflow-hidden mb-5">
@@ -167,9 +160,21 @@ function EditorMenu() {
       >
         <div className="flex items-center gap-3">
           <UtensilsCrossed size={20} className="text-amber-600" />
-          <span className="font-bold text-stone-800">Menú del día — {todayChile()}</span>
+          <span className="font-bold text-stone-800">Modificar Minuta</span>
         </div>
-        {open ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+        <div className="flex items-center gap-2">
+          {autoSaveStatus === "saving" && (
+            <span className="text-xs text-stone-400 flex items-center gap-1">
+              <Loader2 size={12} className="animate-spin" /> Guardando…
+            </span>
+          )}
+          {autoSaveStatus === "saved" && (
+            <span className="text-xs text-green-600 flex items-center gap-1">
+              <CheckCircle2 size={12} /> Guardado
+            </span>
+          )}
+          {open ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+        </div>
       </button>
 
       <AnimatePresence>
@@ -181,24 +186,72 @@ function EditorMenu() {
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="p-4 space-y-1">
-              <ListEditor label="Platos del Día" items={menu.platos} onChange={(v) => setMenu((m) => ({ ...m, platos: v }))} colorClass="border-amber-200" />
-              <ListEditor label="Opciones Veganas" items={menu.veganos} onChange={(v) => setMenu((m) => ({ ...m, veganos: v }))} colorClass="border-green-200" />
-              <ListEditor label="Hipocalóricos" items={menu.hipocaloricos} onChange={(v) => setMenu((m) => ({ ...m, hipocaloricos: v }))} colorClass="border-teal-200" />
-              <ListEditor label="Agregados" items={menu.agregados} onChange={(v) => setMenu((m) => ({ ...m, agregados: v }))} colorClass="border-red-200" />
-              <ListEditor label="Ensaladas" items={menu.ensaladas} onChange={(v) => setMenu((m) => ({ ...m, ensaladas: v }))} colorClass="border-stone-200" />
-              <ListEditor label="Postres" items={menu.postres} onChange={(v) => setMenu((m) => ({ ...m, postres: v }))} colorClass="border-pink-200" />
+            <div className="p-4">
+              {/* ── Selector de día ── */}
+              <div className="flex gap-1 mb-4 bg-stone-100 rounded-xl p-1">
+                {DIAS_ORDER.map((dia) => (
+                  <button
+                    key={dia}
+                    type="button"
+                    onClick={() => setActiveDia(dia)}
+                    className={`flex-1 text-xs font-bold py-2 rounded-lg transition-all ${
+                      activeDia === dia
+                        ? "bg-amber-600 text-white shadow-sm"
+                        : "text-stone-500 hover:text-stone-700"
+                    }`}
+                  >
+                    {DIAS_LABELS[dia].slice(0, 3)}
+                  </button>
+                ))}
+              </div>
 
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className={`w-full flex items-center justify-center gap-2 font-bold py-4 rounded-2xl text-base transition-all mt-2 ${
-                  saved ? "bg-green-500 text-white" : "bg-amber-600 hover:bg-amber-500 text-white"
-                }`}
-              >
-                {saving ? <Loader2 size={20} className="animate-spin" /> : saved ? <CheckCircle2 size={20} /> : <Save size={20} />}
-                {saving ? "Guardando..." : saved ? "¡Guardado!" : "Publicar menú del día"}
-              </button>
+              {/* ── Listas del día activo ── */}
+              <AnimatePresence mode="wait">
+                <m.div
+                  key={activeDia}
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                  transition={{ duration: 0.15 }}
+                >
+                  <ListEditor
+                    label="Platos del Día"
+                    items={diaData.platos}
+                    onChange={(v) => updateDia("platos", v)}
+                    colorClass="border-amber-200"
+                  />
+                  <ListEditor
+                    label="Opciones Veganas"
+                    items={diaData.veganos}
+                    onChange={(v) => updateDia("veganos", v)}
+                    colorClass="border-green-200"
+                  />
+                  <ListEditor
+                    label="Agregados"
+                    items={diaData.agregados}
+                    onChange={(v) => updateDia("agregados", v)}
+                    colorClass="border-red-200"
+                  />
+                  <ListEditor
+                    label="Ensaladas"
+                    items={diaData.ensaladas}
+                    onChange={(v) => updateDia("ensaladas", v)}
+                    colorClass="border-stone-200"
+                  />
+                  <ListEditor
+                    label="Postres"
+                    items={diaData.postres}
+                    onChange={(v) => updateDia("postres", v)}
+                    colorClass="border-pink-200"
+                  />
+                  <ListEditor
+                    label="Hipocalóricos (todos los días)"
+                    items={minuta.hipocaloricos}
+                    onChange={(v) => onMinutaChange({ ...minuta, hipocaloricos: v })}
+                    colorClass="border-teal-200"
+                  />
+                </m.div>
+              </AnimatePresence>
             </div>
           </m.div>
         )}
@@ -228,7 +281,7 @@ function DashboardPedidos() {
 
   useEffect(() => {
     cargar();
-    const interval = setInterval(cargar, 30000); // refresh cada 30s
+    const interval = setInterval(cargar, 30000);
     return () => clearInterval(interval);
   }, [cargar]);
 
@@ -243,7 +296,6 @@ function DashboardPedidos() {
     }
   };
 
-  // Estadísticas
   const stats = pedidos.reduce<Record<string, number>>((acc, p) => {
     acc[p.plato] = (acc[p.plato] || 0) + 1;
     return acc;
@@ -252,7 +304,6 @@ function DashboardPedidos() {
 
   return (
     <div className="space-y-4">
-      {/* Header stats */}
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-center">
           <p className="text-3xl font-black text-amber-700">{pedidos.length}</p>
@@ -266,7 +317,6 @@ function DashboardPedidos() {
         </div>
       </div>
 
-      {/* Resumen por plato */}
       {sortedStats.length > 0 && (
         <div className="bg-white border-2 border-stone-200 rounded-2xl p-4">
           <div className="flex items-center gap-2 mb-3">
@@ -288,7 +338,6 @@ function DashboardPedidos() {
         </div>
       )}
 
-      {/* Lista de pedidos */}
       <div className="bg-white border-2 border-stone-200 rounded-2xl overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 bg-stone-50 border-b border-stone-200">
           <div className="flex items-center gap-2">
@@ -391,7 +440,11 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
             placeholder="PIN de acceso"
             maxLength={8}
             autoFocus
-            className={`w-full border-2 ${error ? "border-red-400 bg-red-50" : "border-stone-200 focus:border-amber-500"} rounded-2xl px-5 py-4 text-xl font-bold text-center text-stone-800 outline-none transition-colors tracking-widest`}
+            className={`w-full border-2 ${
+              error
+                ? "border-red-400 bg-red-50"
+                : "border-stone-200 focus:border-amber-500"
+            } rounded-2xl px-5 py-4 text-xl font-bold text-center text-stone-800 outline-none transition-colors tracking-widest`}
           />
           {error && <p className="text-red-500 text-sm font-medium">PIN incorrecto</p>}
           <button
@@ -411,63 +464,255 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
 function AdminPanel({ onLogout }: { onLogout: () => void }) {
   const [tab, setTab] = useState<"pedidos" | "menu">("pedidos");
 
+  // Estado completo de la minuta — inicializa con DEFAULT_MINUTA
+  const [minuta, setMinuta] = useState<MinutaSemanal>(() => ({
+    ...DEFAULT_MINUTA,
+    dias: { ...DEFAULT_MINUTA.dias },
+  }));
+
+  // Rango de fechas para el período
+  const [rangoFecha, setRangoFecha] = useState<DateRange | undefined>();
+  const [calendarOpen, setCalendarOpen] = useState(false);
+
+  const previewRef = useRef<HTMLDivElement>(null);
+
+  const handleDownloadPDF = () => {
+    window.print();
+  };
+
+  const MESES = ["", "ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"];
+
+  const fmtFecha = (d: Date) =>
+    `${d.getDate()} DE ${MESES[d.getMonth() + 1]}`;
+
+  const handleRangoChange = (range: DateRange | undefined) => {
+    setRangoFecha(range);
+    if (!range) return;
+    const { from, to } = range;
+    // Solo actualiza el período cuando ambas fechas están seleccionadas
+    if (from && to) {
+      setMinuta((m) => ({ ...m, periodo: `${fmtFecha(from)} AL ${fmtFecha(to)}` }));
+    } else if (from) {
+      // Muestra fecha inicio como indicador de que falta la fecha final
+      setMinuta((m) => ({ ...m, periodo: `Desde ${fmtFecha(from)}…` }));
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-[#FDFBF7] font-sans">
-      <header className="sticky top-0 z-40 bg-stone-900 text-white px-5 py-4 flex items-center justify-between shadow-xl">
-        <div className="flex items-center gap-3">
-          <TinkuLogo size={100} invert static />
-          <div className="border-l border-stone-700 pl-3">
-            <h1 className="font-black text-base uppercase tracking-wide leading-tight">Admin</h1>
-            <p className="text-stone-400 text-xs">{todayChile()}</p>
+    <>
+      {/* ── Estilos para print (solo imprime la minuta) ── */}
+      <style>{`
+        @media print {
+          body * { visibility: hidden !important; }
+          #minuta-print-area,
+          #minuta-print-area * { visibility: visible !important; }
+          #minuta-print-area {
+            position: fixed !important;
+            inset: 0 !important;
+            z-index: 9999 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+          @page {
+            size: A4 landscape;
+            margin: 0;
+          }
+        }
+      `}</style>
+
+      <div className="min-h-screen bg-[#FDFBF7] font-sans">
+        <header className="sticky top-0 z-40 bg-stone-900 text-white px-5 py-4 flex items-center justify-between shadow-xl">
+          <div className="flex items-center gap-3">
+            <TinkuLogo size={100} invert static />
+            <div className="border-l border-stone-700 pl-3">
+              <h1 className="font-black text-base uppercase tracking-wide leading-tight">Admin</h1>
+              <p className="text-stone-400 text-xs">{todayChile()}</p>
+            </div>
           </div>
+          <button
+            onClick={onLogout}
+            className="p-2 text-stone-400 hover:text-white hover:bg-stone-700 rounded-xl transition-colors"
+          >
+            <LogOut size={20} />
+          </button>
+        </header>
+
+        {/* Tabs */}
+        <div className="flex border-b border-stone-200 bg-white sticky top-[72px] z-30">
+          <button
+            onClick={() => setTab("pedidos")}
+            className={`flex-1 flex items-center justify-center gap-2 py-3.5 text-sm font-bold transition-colors ${
+              tab === "pedidos"
+                ? "text-amber-600 border-b-2 border-amber-500"
+                : "text-stone-500 hover:text-stone-700"
+            }`}
+          >
+            <Users size={18} /> Pedidos del día
+          </button>
+          <button
+            onClick={() => setTab("menu")}
+            className={`flex-1 flex items-center justify-center gap-2 py-3.5 text-sm font-bold transition-colors ${
+              tab === "menu"
+                ? "text-amber-600 border-b-2 border-amber-500"
+                : "text-stone-500 hover:text-stone-700"
+            }`}
+          >
+            <UtensilsCrossed size={18} /> Minuta semanal
+          </button>
         </div>
-        <button
-          onClick={onLogout}
-          className="p-2 text-stone-400 hover:text-white hover:bg-stone-700 rounded-xl transition-colors"
-        >
-          <LogOut size={20} />
-        </button>
-      </header>
 
-      {/* Tabs */}
-      <div className="flex border-b border-stone-200 bg-white sticky top-[72px] z-30">
-        <button
-          onClick={() => setTab("pedidos")}
-          className={`flex-1 flex items-center justify-center gap-2 py-3.5 text-sm font-bold transition-colors ${
-            tab === "pedidos"
-              ? "text-amber-600 border-b-2 border-amber-500"
-              : "text-stone-500 hover:text-stone-700"
-          }`}
-        >
-          <Users size={18} /> Pedidos del día
-        </button>
-        <button
-          onClick={() => setTab("menu")}
-          className={`flex-1 flex items-center justify-center gap-2 py-3.5 text-sm font-bold transition-colors ${
-            tab === "menu"
-              ? "text-amber-600 border-b-2 border-amber-500"
-              : "text-stone-500 hover:text-stone-700"
-          }`}
-        >
-          <UtensilsCrossed size={18} /> Menú del día
-        </button>
+        <main className="max-w-4xl mx-auto px-4 py-5 pb-20">
+          <AnimatePresence mode="wait">
+            {tab === "pedidos" && (
+              <m.div
+                key="pedidos"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <DashboardPedidos />
+              </m.div>
+            )}
+
+            {tab === "menu" && (
+              <m.div
+                key="menu"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                {/* Editor con selector de día */}
+                <EditorMenu minuta={minuta} onMinutaChange={setMinuta} />
+
+                {/* ── MINUTA SEMANAL ── */}
+                <div className="mt-6">
+                  {/* Header sección */}
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-bold text-stone-500 uppercase tracking-widest">
+                        Minuta Semanal
+                      </span>
+                      <div className="w-16 h-px bg-stone-200" />
+                    </div>
+                    <button
+                      onClick={handleDownloadPDF}
+                      className="flex items-center gap-2 bg-stone-800 hover:bg-stone-700 text-white text-xs font-bold px-4 py-2 rounded-xl transition-colors"
+                    >
+                      <FileDown size={15} />
+                      Descargar PDF
+                    </button>
+                  </div>
+
+                  {/* ── Definir fecha ── */}
+                  <div className="bg-white border-2 border-stone-200 rounded-2xl p-4 mb-4 relative">
+                    <p className="text-xs font-bold text-stone-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                      <CalendarDays size={14} className="text-amber-600" />
+                      Definir fecha
+                    </p>
+
+                    {/* Botón para abrir/cerrar calendario */}
+                    <button
+                      type="button"
+                      onClick={() => setCalendarOpen((o) => !o)}
+                      className="w-full flex items-center justify-between gap-3 bg-stone-50 hover:bg-amber-50 border-2 border-stone-200 hover:border-amber-300 rounded-2xl px-4 py-3.5 transition-all active:scale-[0.98]"
+                    >
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <div className="text-left flex-1 min-w-0">
+                          {rangoFecha?.from ? (
+                            <div>
+                              <p className="text-xs text-stone-400 font-medium uppercase tracking-wider">Período seleccionado</p>
+                              <p className="text-sm font-bold text-stone-800 truncate">
+                                {rangoFecha.from.toLocaleDateString("es-CL", { day: "numeric", month: "short" })}
+                                {rangoFecha.to
+                                  ? ` → ${rangoFecha.to.toLocaleDateString("es-CL", { day: "numeric", month: "short" })}`
+                                  : " → …"}
+                              </p>
+                            </div>
+                          ) : (
+                            <div>
+                              <p className="text-xs text-stone-400 font-medium uppercase tracking-wider">Período</p>
+                              <p className="text-sm text-stone-400">Selecciona las fechas de la semana</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <CalendarDays size={18} className={`shrink-0 transition-colors ${calendarOpen ? "text-amber-600" : "text-stone-400"}`} />
+                    </button>
+
+                    {/* Calendario desplegable */}
+                    <AnimatePresence>
+                      {calendarOpen && (
+                        <m.div
+                          initial={{ opacity: 0, y: -8, scale: 0.97 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: -8, scale: 0.97 }}
+                          transition={{ duration: 0.18 }}
+                          className="mt-3 bg-white border-2 border-stone-100 rounded-2xl shadow-xl overflow-hidden"
+                          style={{
+                            "--rdp-accent-color": "#d97706",
+                            "--rdp-accent-background-color": "#fef3c7",
+                          } as React.CSSProperties}
+                        >
+                          <DayPicker
+                            mode="range"
+                            selected={rangoFecha}
+                            onSelect={handleRangoChange}
+                            disabled={{ before: new Date(new Date().setHours(0, 0, 0, 0)) }}
+                            locale={undefined}
+                            showOutsideDays
+                            className="p-3"
+                          />
+                          {rangoFecha?.from && (
+                            <div className="px-4 pb-3 flex justify-between items-center border-t border-stone-100 pt-3">
+                              <button
+                                type="button"
+                                onClick={() => { setRangoFecha(undefined); setMinuta((m) => ({ ...m, periodo: DEFAULT_MINUTA.periodo })); }}
+                                className="text-xs text-stone-400 hover:text-red-500 font-medium transition-colors"
+                              >
+                                Limpiar
+                              </button>
+                              {rangoFecha.to ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setCalendarOpen(false)}
+                                    className="text-xs bg-amber-600 text-white font-bold px-4 py-1.5 rounded-lg hover:bg-amber-500 transition-colors"
+                                  >
+                                    Confirmar
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-amber-600 font-semibold animate-pulse">
+                                    Selecciona la fecha final ↗
+                                  </span>
+                                )}
+                            </div>
+                          )}
+                        </m.div>
+                      )}
+                    </AnimatePresence>
+
+                    {minuta.periodo && (
+                      <p className="text-xs text-amber-700 font-semibold mt-2 text-center tracking-wide">
+                        {minuta.periodo}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Área imprimible */}
+                  <div id="minuta-print-area" ref={previewRef}>
+                    <div className="overflow-x-auto rounded-2xl shadow-sm">
+                      <MinutaPreview minuta={minuta} />
+                    </div>
+                  </div>
+                </div>
+              </m.div>
+            )}
+          </AnimatePresence>
+        </main>
       </div>
-
-      <main className="max-w-2xl mx-auto px-4 py-5 pb-20">
-        <AnimatePresence mode="wait">
-          {tab === "pedidos" && (
-            <m.div key="pedidos" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <DashboardPedidos />
-            </m.div>
-          )}
-          {tab === "menu" && (
-            <m.div key="menu" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <EditorMenu />
-            </m.div>
-          )}
-        </AnimatePresence>
-      </main>
-    </div>
+    </>
   );
 }
 
